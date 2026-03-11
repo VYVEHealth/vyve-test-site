@@ -290,7 +290,7 @@
 // ═══════════════════════════════════════
 // APPS SCRIPT API — live data relay
 // ═══════════════════════════════════════
-const API_URL = 'https://script.google.com/macros/s/AKfycbxkUlaoF33heCqHIZ0BVctolfYJy7ZK1lxe3TO-Snz06HEum5_jJhWsJdQQybFYpXFy/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbygoj5S-tcZjLbcmqTJRoZsGkUxA6YIoobpDNV-XE1Hmxy2ZwaV5Yof8xxv8tU3Mn4/exec';
 
 // ═══════════════════════════════════════
 // STATE
@@ -321,12 +321,17 @@ async function fetchTab(tab) {
 async function loadAll() {
   msg('Loading members…');
   try {
-    const members = await fetchTab('members');
+    // Fetch with timeout to avoid silent hangs
+    const withTimeout = (promise, ms=15000) => Promise.race([
+      promise,
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('Request timed out after '+ms/1000+'s')),ms))
+    ]);
+    const members = await withTimeout(fetchTab('members'));
     msg('Loading activities…');
     const [sessions, habits, checkins, workouts, cardio] = await Promise.all([
-      fetchTab('sessionLog'), fetchTab('habits'),
-      fetchTab('checkins'),   fetchTab('workouts'),
-      fetchTab('cardio'),
+      withTimeout(fetchTab('sessionLog')), withTimeout(fetchTab('habits')),
+      withTimeout(fetchTab('checkins')),   withTimeout(fetchTab('workouts')),
+      withTimeout(fetchTab('cardio')),
     ]);
     DATA = {members, sessions, habits, checkins, workouts, cardio};
     buildCoTabs();
@@ -363,7 +368,7 @@ function msg(t){document.getElementById('l-msg').textContent=t;}
 // COMPANY TABS
 // ═══════════════════════════════════════
 function buildCoTabs() {
-  const cos = [...new Set(DATA.members.map(r=>(r['Company']||r['company']||'').trim()).filter(Boolean))].sort();
+  const cos = [...new Set(DATA.members.map(r=>(r['Company']||r['company']||'').trim()).filter(Boolean).filter(c=>c.length>0))].sort();
   const wrap = document.getElementById('ctabs');
   wrap.innerHTML = `<button class="ct on" data-co="ALL" onclick="switchCo('ALL',this)">All Companies</button>`;
   cos.forEach(co => {
@@ -389,6 +394,8 @@ function render(co) {
   const fm  = rows => co==='ALL' ? rows : rows.filter(r=>(r['Company']||r['company']||'').trim()===co);
   const fa  = rows => co==='ALL' ? rows : rows.filter(r=>(r['Company']||r['company']||'').trim()===co);
   const fs  = rows => co==='ALL' ? rows : rows.filter(r=>{const c=(r['Company']||r['company']||'').trim();return !c||c===co;});
+  // Normalise member company field (Members tab uses "Email Address" not "Email")
+  // Company field is correct, Status may contain emoji - strip it for comparison
 
   const members  = fm(DATA.members);
   const habits   = fa(DATA.habits);
@@ -441,12 +448,12 @@ function render(co) {
     finalLV=lv; finalLM=Math.round(lm); finalRV=rv; finalRM=Math.round(rm);
   }
 
-  // Member status
+  // Member status — strip emoji from status field
   let sAc=0, sAm=0, sRd=0;
   members.forEach(m=>{
     const s=(m['Status']||m['status']||'').toLowerCase();
-    if(s==='active') sAc++;
-    else if(s==='inactive') sRd++;
+    if(s.includes('inactive')) sRd++;
+    else if(s.includes('active')) sAc++;
     else sAm++;
   });
   if(sAc+sAm+sRd===0) sAc=totalM;
@@ -593,5 +600,18 @@ function renderMilestones(total){
 function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
 function num(v){return parseInt(String(v).replace(/[^0-9.-]/g,''))||0;}
 function pd(s){
+  if(!s)return null;
+  s=String(s).trim();
+  if(!s)return null;
+  // DD/MM/YYYY
+  let m=s.match(/^(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{4})/);
+  if(m) return new Date(+m[3],+m[2]-1,+m[1]);
+  // YYYY-MM-DD
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  // Long format from Apps Script: "Mon Dec 01 2025 00:00:00 GMT..."
+  const d=new Date(s);
+  return isNaN(d.getTime())?null:d;
+}function pd(s){
   if(!s)return null; s=s.trim();
   let m=s.match(/

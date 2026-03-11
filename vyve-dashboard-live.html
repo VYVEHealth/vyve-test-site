@@ -390,12 +390,39 @@ function switchCo(co, btn) {
 // RENDER
 // ═══════════════════════════════════════
 function render(co) {
-  // Filter helpers — your activity tabs have Company in col E
-  const fm  = rows => co==='ALL' ? rows : rows.filter(r=>(r['Company']||r['company']||'').trim()===co);
-  const fa  = rows => co==='ALL' ? rows : rows.filter(r=>(r['Company']||r['company']||'').trim()===co);
-  const fs  = rows => co==='ALL' ? rows : rows.filter(r=>{const c=(r['Company']||r['company']||'').trim();return !c||c===co;});
-  // Normalise member company field (Members tab uses "Email Address" not "Email")
-  // Company field is correct, Status may contain emoji - strip it for comparison
+  // Build email->company lookup from Members tab
+  const emailCo = {};
+  DATA.members.forEach(m => {
+    const email = (m['Email Address']||m['Email']||m['email']||'').trim().toLowerCase();
+    const company = (m['Company']||m['company']||'').trim();
+    if(email) emailCo[email] = company;
+  });
+
+  // Filter members by company
+  const fm = rows => co==='ALL' ? rows : rows.filter(r=>(r['Company']||r['company']||'').trim()===co);
+
+  // Filter activity rows by looking up email in Members tab
+  const fa = rows => {
+    if(co==='ALL') return rows;
+    return rows.filter(r=>{
+      const email = (r['Email']||r['email']||r['Email Address']||'').trim().toLowerCase();
+      // Also try Company column if it exists on the row
+      const rowCo = (r['Company']||r['company']||'').trim();
+      if(rowCo) return rowCo === co;
+      return emailCo[email] === co;
+    });
+  };
+
+  // Filter session log rows by email lookup
+  const fs = rows => {
+    if(co==='ALL') return rows;
+    return rows.filter(r=>{
+      const email = (r['Email']||r['email']||r['Email Address']||'').trim().toLowerCase();
+      const rowCo = (r['Company']||r['company']||'').trim();
+      if(rowCo) return rowCo === co;
+      return emailCo[email] === co;
+    });
+  };
 
   const members  = fm(DATA.members);
   const habits   = fa(DATA.habits);
